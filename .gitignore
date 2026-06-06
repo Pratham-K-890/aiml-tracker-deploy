@@ -1,0 +1,19 @@
+.DS_Store
+Thumbs.db
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Node / Vite
+web/node_modules/
+web/dist/
+web/.env
+web/.env.*
+!web/.env.example
+mobile/node_modules/
