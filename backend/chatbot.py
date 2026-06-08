@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -212,7 +213,7 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
         q = q.ilike("guide", f"%{spec['guide_name'].strip()}%")
     if isinstance(spec.get("keyword"), str) and spec["keyword"].strip():
         kw = spec["keyword"].strip()
-        q = q.or_(f"title.ilike.%{kw}%,github.ilike.%{kw}%")
+        q = q.or_(f"title.ilike.%{kw}%,github.ilike.%{kw}%,readme_cache.ilike.%{kw}%")
 
     rows = q.limit(50).execute().data or []
 
@@ -252,18 +253,40 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
 
 # ───────────────────────── Capability 2: explain README ─────────────────────────
 
+_CACHE_TTL = timedelta(days=7)
+
+
 def _load_project_with_readme(project_id: str) -> tuple[dict, Optional[str], Optional[str]]:
     from project_tracker import db
     proj = db.table("project").select("*").eq("project_id", project_id).execute()
     if not proj.data:
         raise HTTPException(404, "Project not found.")
     p = proj.data[0]
+
+    # Serve from cache if fresh
+    cached_at_raw = p.get("readme_cached_at")
+    if p.get("readme_cache") and cached_at_raw:
+        try:
+            cached_at = datetime.fromisoformat(cached_at_raw.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) - cached_at < _CACHE_TTL:
+                return p, p["readme_cache"], None
+        except ValueError:
+            pass
+
+    # Cache miss — fetch from GitHub
     parsed = parse_repo_url(p.get("github"))
     if not parsed:
         return p, None, "no_github_url"
     readme = fetch_readme(*parsed)
     if not readme:
         return p, None, "readme_unreachable"
+
+    # Persist to cache
+    db.table("project").update({
+        "readme_cache": readme,
+        "readme_cached_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("project_id", project_id).execute()
+
     return p, readme, None
 
 
