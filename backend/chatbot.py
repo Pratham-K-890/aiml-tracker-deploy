@@ -102,7 +102,9 @@ For "aggregate" intent:
   "aggregate_question": string (the normalized question to answer)
 }
 
-Never invent field values. Never include explanation text."""
+Never invent field values. Words like "all", "every", "any", "show", "list", "me" are NOT field values — omit them.
+If the user wants everything with no specific criteria, return {"intent": "filter"} with no other keys.
+Never include explanation text."""
 
 
 def _build_summary(count: int, spec: dict) -> str:
