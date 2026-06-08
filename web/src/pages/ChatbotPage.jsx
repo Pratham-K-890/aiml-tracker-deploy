@@ -13,10 +13,11 @@ const HINTS = [
 export default function ChatbotPage() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState([
-    { role: 'ai', text: 'Ask me anything about the projects — I\'ll filter and find them for you.' },
+    { role: 'ai', text: 'Ask me anything about the projects — search by name, guide, student, or ask analytical questions like "which guide has the most projects".' },
   ]);
   const [input, setInput]     = useState('');
   const [loading, setLoading] = useState(false);
+  const lastFilterRef = useRef(null);
   const bottomRef = useRef();
 
   useEffect(() => {
@@ -30,7 +31,9 @@ export default function ChatbotPage() {
     setMessages(m => [...m, { role: 'user', text: q }]);
     setLoading(true);
     try {
-      const data = await chatFilter(q);
+      const data = await chatFilter(q, lastFilterRef.current);
+      if (data.type === 'filter') lastFilterRef.current = data.filter;
+      else lastFilterRef.current = null;
       setMessages(m => [...m, { role: 'ai', type: 'results', data }]);
     } catch (e) {
       setMessages(m => [...m, { role: 'ai', text: `Error: ${e.message}` }]);
@@ -111,6 +114,18 @@ const FILTER_LABELS = {
 };
 
 function AIResultCard({ data, onNavigate }) {
+  if (data.type === 'aggregate') {
+    return (
+      <div className="chat-bubble ai" style={{ maxWidth: '90%', width: '100%' }}>
+        <div className="label-tag">AI Answer</div>
+        <div style={{ fontSize: '0.9rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{data.answer}</div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 8 }}>
+          Based on {data.total_projects} projects in the database.
+        </div>
+      </div>
+    );
+  }
+
   const { filter, projects, count, summary, rephrasing } = data;
 
   const filterTags = Object.entries(filter || {})

@@ -216,11 +216,11 @@ export const getReadme = (projectId) =>
   request(`${TRACKER}/projects/${projectId}/readme`, { headers: authHeaders() });
 
 // ── Chatbot ──────────────────────────────────────────────────────────────────
-export const chatFilter = (query) =>
+export const chatFilter = (query, previousFilter = null) =>
   request(`${CHATBOT}/filter`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, ...(previousFilter ? { previous_filter: previousFilter } : {}) }),
   });
 
 export const chatExplain = (projectId) =>

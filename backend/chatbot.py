@@ -70,19 +70,38 @@ def _groq_chat(messages: list[dict], json_mode: bool = False, max_tokens: int = 
 
 class FilterRequest(BaseModel):
     query: str
+    previous_filter: Optional[dict] = None
 
 
-_FILTER_SYSTEM = """You translate a user's natural-language query about student projects
-into a strict JSON filter. First correct obvious spelling mistakes in the query.
-Output ONLY a JSON object with these optional keys:
-  - batch_name (string, e.g. "2024-2028")
-  - sem_number (integer 1-8)
-  - course_name (string substring)
-  - title (string substring)        # project title contains
-  - guide_name (string substring)
-  - keyword (string)                # free-text fallback over title+github
-Correct obvious spelling/typo errors but never invent field values not implied by the query.
-Omit keys the user did not specify. Never include explanation text."""
+_FILTER_SYSTEM = """Process a natural-language query about student projects. First correct obvious spelling mistakes.
+
+Decide the intent:
+- "filter": user wants a list of projects matching criteria (most queries)
+- "aggregate": user wants counts, rankings, or analytical answers
+  (e.g. "how many projects use React", "which guide has the most projects", "most popular tech in sem 3")
+
+Output ONLY a JSON object.
+
+For "filter" intent:
+{
+  "intent": "filter",
+  "batch_name": string e.g. "2024-2028",
+  "sem_number": integer 1-8,
+  "course_name": string substring,
+  "title": string substring,
+  "guide_name": string substring,
+  "student_name": string (student first or last name),
+  "keyword": string (searches title and github url)
+}
+Include only keys implied by the query. If a previous filter is provided in the user message, merge or refine it with the new query.
+
+For "aggregate" intent:
+{
+  "intent": "aggregate",
+  "aggregate_question": string (the normalized question to answer)
+}
+
+Never invent field values. Never include explanation text."""
 
 
 def _build_summary(count: int, spec: dict) -> str:
@@ -95,6 +114,8 @@ def _build_summary(count: int, spec: dict) -> str:
         parts.append(spec["course_name"])
     if spec.get("guide_name"):
         parts.append(f"guided by {spec['guide_name']}")
+    if spec.get("student_name"):
+        parts.append(f"student \"{spec['student_name']}\"")
     if spec.get("title"):
         parts.append(f'title containing "{spec["title"]}"')
     if spec.get("keyword"):
@@ -102,6 +123,36 @@ def _build_summary(count: int, spec: dict) -> str:
     noun = "project" if count == 1 else "projects"
     base = f"{count} {noun} found"
     return f"{base} for {', '.join(parts)}." if parts else f"{base}."
+
+
+def _handle_aggregate(question: str) -> dict:
+    from project_tracker import db
+    rows = db.table("project").select(
+        "title,guide,course(course_name,semester(sem_number,batch(batch_name)))"
+    ).limit(200).execute().data or []
+
+    lines = []
+    for p in rows:
+        course = p.get("course") or {}
+        sem = course.get("semester") or {}
+        batch = sem.get("batch") or {}
+        lines.append(
+            f"- {p.get('title') or '?'} | Guide: {p.get('guide') or '?'} | "
+            f"Course: {course.get('course_name') or '?'} | "
+            f"Sem: {sem.get('sem_number') or '?'} | Batch: {batch.get('batch_name') or '?'}"
+        )
+
+    answer = _groq_chat(
+        [
+            {"role": "system", "content":
+             "You answer analytical questions about a list of student projects. "
+             "Be concise and direct. Use numbers when relevant. No markdown headers or bullet preambles."},
+            {"role": "user", "content":
+             f"QUESTION: {question}\n\nPROJECTS ({len(rows)} total):\n" + "\n".join(lines[:150])},
+        ],
+        max_tokens=350,
+    )
+    return {"type": "aggregate", "answer": answer.strip(), "total_projects": len(rows)}
 
 
 def _suggest_rephrasing(original_query: str, applied_filter: dict) -> str:
@@ -121,10 +172,17 @@ def _suggest_rephrasing(original_query: str, applied_filter: dict) -> str:
 
 @router.post("/filter")
 def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
+    user_msg = req.query.strip()
+    if req.previous_filter:
+        user_msg = (
+            f"Previous filter applied: {json.dumps(req.previous_filter)}\n"
+            f"New query (refine or modify the previous filter): {req.query.strip()}"
+        )
+
     raw = _groq_chat(
         [
             {"role": "system", "content": _FILTER_SYSTEM},
-            {"role": "user", "content": req.query.strip()},
+            {"role": "user", "content": user_msg},
         ],
         json_mode=True,
         max_tokens=300,
@@ -134,10 +192,17 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
     except json.JSONDecodeError:
         raise HTTPException(502, "Model returned non-JSON filter spec.")
 
+    intent = spec.pop("intent", "filter")
+    aggregate_question = spec.pop("aggregate_question", None)
+
+    if intent == "aggregate":
+        return _handle_aggregate(aggregate_question or req.query)
+
     from project_tracker import db  # late import — avoids circular at module load
 
     q = db.table("project").select(
         "project_id,title,github,guide,"
+        "student(name,usn),"
         "course(course_name,semester(sem_number,batch(batch_name)))"
     )
 
@@ -153,9 +218,9 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
 
     # Post-filter for nested fields the REST query can't easily constrain
     def keep(p: dict) -> bool:
-        course = (p.get("course") or {})
-        sem = (course.get("semester") or {})
-        batch = (sem.get("batch") or {})
+        course = p.get("course") or {}
+        sem = course.get("semester") or {}
+        batch = sem.get("batch") or {}
         if isinstance(spec.get("course_name"), str) and spec["course_name"].strip():
             if spec["course_name"].lower() not in (course.get("course_name") or "").lower():
                 return False
@@ -165,12 +230,24 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
         if isinstance(spec.get("sem_number"), int):
             if sem.get("sem_number") != spec["sem_number"]:
                 return False
+        if isinstance(spec.get("student_name"), str) and spec["student_name"].strip():
+            needle = spec["student_name"].lower()
+            students = p.get("student") or []
+            if not any(needle in (s.get("name") or "").lower() for s in students):
+                return False
         return True
 
     filtered = [p for p in rows if keep(p)]
     summary = _build_summary(len(filtered), spec)
     rephrasing = _suggest_rephrasing(req.query, spec) if len(filtered) == 0 else None
-    return {"filter": spec, "count": len(filtered), "projects": filtered, "summary": summary, "rephrasing": rephrasing}
+    return {
+        "type": "filter",
+        "filter": spec,
+        "count": len(filtered),
+        "projects": filtered,
+        "summary": summary,
+        "rephrasing": rephrasing,
+    }
 
 
 # ───────────────────────── Capability 2: explain README ─────────────────────────
