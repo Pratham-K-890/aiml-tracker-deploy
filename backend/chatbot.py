@@ -31,7 +31,7 @@ from github_utils import (
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 _GROQ_KEY = os.getenv("GROQ_API_KEY")
-_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 # Token caps (coarse char-based — see github_utils.truncate_tokens)
 _README_CAP = 3000          # per-README cap before sending to LLM
