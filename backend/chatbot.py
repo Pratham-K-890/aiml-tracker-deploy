@@ -59,8 +59,11 @@ def _groq_chat(messages: list[dict], json_mode: bool = False, max_tokens: int = 
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
-    resp = client.chat.completions.create(**kwargs)
-    return resp.choices[0].message.content or ""
+    try:
+        resp = client.chat.completions.create(**kwargs)
+        return resp.choices[0].message.content or ""
+    except Exception as exc:
+        raise HTTPException(502, f"LLM service error: {exc}")
 
 
 # ───────────────────────── Capability 1: NL filter ─────────────────────────

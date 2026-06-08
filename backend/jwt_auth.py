@@ -113,7 +113,10 @@ def verify_token(authorization: str = Header(...)) -> dict:
 
 def _get_role(user_id: str) -> str:
     from project_tracker import db
-    hit = db.table("profiles").select("role").eq("id", user_id).execute()
+    try:
+        hit = db.table("profiles").select("role").eq("id", user_id).execute()
+    except Exception as exc:
+        raise HTTPException(503, f"Database unavailable: {exc}")
     if not hit.data:
         raise HTTPException(403, "Profile not found. Contact an admin.")
     return hit.data[0].get("role", "")

@@ -1774,14 +1774,21 @@ _DOC_BUCKET = "course-docs"
 _bucket_ready = False
 
 
+_BUCKET_OPTS = {"public": True, "allowed_mime_types": None, "file_size_limit": None}
+
+
 def _ensure_doc_bucket() -> None:
     global _bucket_ready
     if _bucket_ready:
         return
     try:
-        db.storage.create_bucket(_DOC_BUCKET, options={"public": True})
+        db.storage.create_bucket(_DOC_BUCKET, options=_BUCKET_OPTS)
     except Exception:
-        pass  # already exists
+        # Already exists — update to remove any MIME-type restrictions
+        try:
+            db.storage.update_bucket(_DOC_BUCKET, options=_BUCKET_OPTS)
+        except Exception:
+            pass
     _bucket_ready = True
 
 
