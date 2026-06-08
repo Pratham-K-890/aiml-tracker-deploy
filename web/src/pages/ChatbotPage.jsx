@@ -101,12 +101,21 @@ export default function ChatbotPage() {
   );
 }
 
+const FILTER_LABELS = {
+  batch_name: 'Batch',
+  sem_number: 'Semester',
+  course_name: 'Course',
+  title: 'Title',
+  guide_name: 'Guide',
+  keyword: 'Keyword',
+};
+
 function AIResultCard({ data, onNavigate }) {
-  const { filter, projects, count } = data;
+  const { filter, projects, count, summary, rephrasing } = data;
 
   const filterTags = Object.entries(filter || {})
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
-    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`);
+    .map(([k, v]) => `${FILTER_LABELS[k] || k}: ${v}`);
 
   return (
     <div className="chat-bubble ai" style={{ maxWidth: '90%', width: '100%' }}>
@@ -116,11 +125,18 @@ function AIResultCard({ data, onNavigate }) {
           {filterTags.map(t => <span key={t} className="tag">{t}</span>)}
         </div>
       )}
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 8 }}>
-        {count} project{count !== 1 ? 's' : ''} found
+      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+        {summary}
       </div>
       {count === 0 ? (
-        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>No projects matched.</div>
+        <div>
+          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>No projects matched.</div>
+          {rephrasing && (
+            <div style={{ marginTop: 8, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              <strong>Try:</strong> {rephrasing}
+            </div>
+          )}
+        </div>
       ) : (
         projects.map(p => (
           <button

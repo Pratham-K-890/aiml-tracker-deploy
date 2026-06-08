@@ -73,14 +73,50 @@ class FilterRequest(BaseModel):
 
 
 _FILTER_SYSTEM = """You translate a user's natural-language query about student projects
-into a strict JSON filter. Output ONLY a JSON object with these optional keys:
+into a strict JSON filter. First correct obvious spelling mistakes in the query.
+Output ONLY a JSON object with these optional keys:
   - batch_name (string, e.g. "2024-2028")
   - sem_number (integer 1-8)
   - course_name (string substring)
   - title (string substring)        # project title contains
   - guide_name (string substring)
   - keyword (string)                # free-text fallback over title+github
-Omit keys the user did not specify. Never invent values. Never include explanation text."""
+Correct obvious spelling/typo errors but never invent field values not implied by the query.
+Omit keys the user did not specify. Never include explanation text."""
+
+
+def _build_summary(count: int, spec: dict) -> str:
+    parts = []
+    if spec.get("batch_name"):
+        parts.append(f"Batch {spec['batch_name']}")
+    if spec.get("sem_number"):
+        parts.append(f"Semester {spec['sem_number']}")
+    if spec.get("course_name"):
+        parts.append(spec["course_name"])
+    if spec.get("guide_name"):
+        parts.append(f"guided by {spec['guide_name']}")
+    if spec.get("title"):
+        parts.append(f'title containing "{spec["title"]}"')
+    if spec.get("keyword"):
+        parts.append(f'keyword "{spec["keyword"]}"')
+    noun = "project" if count == 1 else "projects"
+    base = f"{count} {noun} found"
+    return f"{base} for {', '.join(parts)}." if parts else f"{base}."
+
+
+def _suggest_rephrasing(original_query: str, applied_filter: dict) -> str:
+    raw = _groq_chat(
+        [
+            {"role": "system", "content":
+             "A user searched for student projects but got zero results. "
+             "Suggest one simpler or broader rephrasing of their query in a single short sentence. "
+             "Be specific — mention what to try removing or relaxing. No preamble."},
+            {"role": "user", "content":
+             f"Original query: {original_query}\nApplied filter: {json.dumps(applied_filter)}"},
+        ],
+        max_tokens=100,
+    )
+    return raw.strip()
 
 
 @router.post("/filter")
@@ -132,7 +168,9 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
         return True
 
     filtered = [p for p in rows if keep(p)]
-    return {"filter": spec, "count": len(filtered), "projects": filtered}
+    summary = _build_summary(len(filtered), spec)
+    rephrasing = _suggest_rephrasing(req.query, spec) if len(filtered) == 0 else None
+    return {"filter": spec, "count": len(filtered), "projects": filtered, "summary": summary, "rephrasing": rephrasing}
 
 
 # ───────────────────────── Capability 2: explain README ─────────────────────────
