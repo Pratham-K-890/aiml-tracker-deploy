@@ -493,7 +493,8 @@ def get_project(project_id: str, _user=Depends(verify_token)):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/batches")
-def create_batch(body: BatchIn, _user=Depends(verify_token)):
+def create_batch(body: BatchIn, user=Depends(verify_token)):
+    require_admin(user)
     try:
         res = db.table("batch").insert(body.model_dump()).execute()
         if not res.data:
@@ -506,7 +507,8 @@ def create_batch(body: BatchIn, _user=Depends(verify_token)):
 
 
 @router.post("/batches/{batch_id}/semesters")
-def create_semester(batch_id: str, body: SemesterIn, _user=Depends(verify_token)):
+def create_semester(batch_id: str, body: SemesterIn, user=Depends(verify_token)):
+    require_admin(user)
     existing = (
         db.table("semester").select("*")
         .eq("batch_id", batch_id).eq("sem_number", body.sem_number).execute()
@@ -525,7 +527,8 @@ def create_semester(batch_id: str, body: SemesterIn, _user=Depends(verify_token)
 
 
 @router.post("/semesters/{semester_id}/courses")
-def create_course(semester_id: str, body: CourseIn, _user=Depends(verify_token)):
+def create_course(semester_id: str, body: CourseIn, user=Depends(verify_token)):
+    require_admin(user)
     payload = {"semester_id": semester_id, **{k: v for k, v in body.model_dump().items() if v is not None}}
     try:
         res = db.table("course").insert(payload).execute()
@@ -540,7 +543,8 @@ def create_course(semester_id: str, body: CourseIn, _user=Depends(verify_token))
 
 
 @router.post("/courses/{course_id}/coordinators")
-def add_coordinator(course_id: str, body: CoordinatorIn, _user=Depends(verify_token)):
+def add_coordinator(course_id: str, body: CoordinatorIn, user=Depends(verify_token)):
+    require_admin(user)
     return db.table("coordinator").upsert(
         {"user_id": body.user_id, "course_id": course_id}
     ).execute().data[0]

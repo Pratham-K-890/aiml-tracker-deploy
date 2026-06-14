@@ -1,0 +1,43 @@
+# systemd service for the Project Tracker FastAPI backend.
+#
+# Install:
+#   sudo cp deploy/project-tracker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable project-tracker
+#   sudo systemctl start project-tracker
+#
+# Logs:
+#   sudo journalctl -u project-tracker -f
+
+[Unit]
+Description=Department Project Tracker API
+After=network.target
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+
+WorkingDirectory=/opt/project-tracker/backend
+
+# python-dotenv inside the app reads this .env file automatically
+# because WorkingDirectory is set to the backend folder.
+# If you prefer systemd-level env loading instead, replace the line above
+# with: EnvironmentFile=/opt/project-tracker/backend/.env
+
+ExecStart=/opt/project-tracker/backend/.venv/bin/gunicorn main:app \
+    -w 2 \
+    -k uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile -
+
+Restart=always
+RestartSec=5
+
+# Prevent the process from gaining new privileges
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -76,8 +76,8 @@ def verify_token(authorization: str = Header(...)) -> dict:
 
     try:
         header = jwt.get_unverified_header(token)
-    except jwt.DecodeError as exc:
-        raise HTTPException(401, f"Malformed token: {exc}")
+    except jwt.DecodeError:
+        raise HTTPException(401, "Invalid token.")
 
     alg = header.get("alg", "")
     kid = header.get("kid", "")
@@ -100,15 +100,12 @@ def verify_token(authorization: str = Header(...)) -> dict:
                 options=_opts,
             )
         else:
-            raise HTTPException(
-                401,
-                f"No key available to verify this token (alg={alg}, kid={kid}).",
-            )
+            raise HTTPException(401, "Invalid token.")
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token has expired.")
-    except jwt.InvalidTokenError as exc:
-        raise HTTPException(401, f"Invalid token: {exc}")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token.")
 
 
 def _get_role(user_id: str) -> str:
