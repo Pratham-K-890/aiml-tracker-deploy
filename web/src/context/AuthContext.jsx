@@ -16,10 +16,10 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${TRACKER}/me`, { headers: authHeaders() });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setRole(data.role || 'teacher');
+      setRole(data.role || '');
       setEmail(data.email || '');
       setUserId(data.id || '');
-      localStorage.setItem('user_role', data.role || 'teacher');
+      localStorage.setItem('user_role', data.role || '');
     } catch {
       // Fallback to cached value
     } finally {
