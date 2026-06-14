@@ -1,142 +1,210 @@
-# 🎓 AIML Department Mini Project Tracker
+# AIML Department Project Tracker
 
-**Live Application:** https://mini-project-tracker-henna.vercel.app/login
-
----
-
-## 🔍 About the Project
-
-The **AIML Department Mini Project Tracker** is a full-stack web application built to digitize and streamline the entire mini project management process for the AIML Department. It brings everything under one roof — coordinators can manage batches, create teams, assign guides and evaluators, and record marks for all three reviews. Faculty can view their assigned projects, and students can log in anytime to check their project details and review scores.
-
-The system is built around a four-level role hierarchy, ensuring each user has access only to what is relevant to their role.
+A full-stack web application to manage mini and major projects across batches, semesters, and courses for the AIML Department.
 
 ---
 
-## ✨ Key Features
+## About
 
-**📁 Project and Batch Management**
-Coordinators can create semesters, batches, and student teams. Each team's project details — including title, description, and members — are stored and managed in one place.
-
-**👨‍🏫 Guide and Evaluator Assignment**
-Once teams are created, the coordinator assigns a faculty guide and evaluators to each team, ensuring proper academic oversight throughout the semester.
-
-**📊 Three-Review Marks System**
-The platform supports marks entry for all three review stages. Marks are instantly reflected in the team's profile, giving students and faculty real-time visibility into academic progress.
-
-**🤖 AI-Powered Project Search**
-An intelligent chatbot powered by Google Gemini allows users to search for any project using plain English — by semester, year, batch, guide name, or student name.
-
-**👁️ Student Portal**
-Students have a dedicated read-only view to check their team's project details, assigned faculty, and review marks without needing to contact anyone manually.
+The **AIML Department Project Tracker** digitalises the entire project lifecycle — from batch creation to final evaluation marks. Coordinators manage teams, assign guides and examiners, and record review marks. Faculty view their assigned projects. Students check their project status and review scores. An AI chatbot lets anyone search projects in plain English.
 
 ---
 
-## 👥 User Roles and Permissions
+## Features
 
-**🔴 HOD / Admin** — Full access across all batches, semesters, coordinators, and marks. Responsible for overall oversight and user management.
+**Batch & Semester Hierarchy**
+Admins create batches, semesters, and courses. Each semester can be flagged as a Mini or Major project cycle, active or inactive.
 
-**🟠 Coordinator** — Manages a specific semester. Can create batches, add teams, assign guides and evaluators, and enter marks for all three reviews.
+**Team Management**
+Coordinators create teams manually or via Excel bulk upload. Each team has a project title, GitHub link, and up to 4 students.
 
-**🟡 Teacher** — Can view projects where assigned as a guide or evaluator, along with team details and review progress.
+**Guide & Examiner Assignment**
+Faculty guides and up to 2 examiners are assigned per team. Teachers see only their own assigned projects.
 
-**🟢 Student** — View-only access to their own team's project information, assigned faculty, and review marks.
+**Three-Review Evaluation System**
+Marks entry for all three review stages with a fixed rubric:
+- Review 1 (Problem & Design): 5 criteria × 10 = 50 marks
+- Review 2 (Implementation): 5 criteria × 10 = 50 marks
+- Review 3 (Demonstration): 4 criteria × 25 = 100 marks
+
+Each review can be locked/unlocked by the coordinator. Marks are downloadable as a formatted Excel sheet matching the department template.
+
+**AI Chatbot**
+Natural language project search powered by Groq (Llama 3.1). Ask things like:
+- *"Show ML projects guided by Vindhya mam in sem 5"*
+- *"Which guide has the most projects in batch 2024-2028?"*
+- *"Python projects in sem 3"*
+
+**AI README Explain & Suggest**
+For any project with a GitHub link, the AI can summarise the README and suggest improvements based on similar popular repositories.
+
+**Course Documents**
+Coordinators can upload reference documents per course. All users can download them.
+
+**Role-Based Access**
+No public sign-up. Accounts are created by the admin. Access is determined by role on every request.
 
 ---
 
-## 🛠️ Tech Stack
+## User Roles
+
+| Role | Access |
+|------|--------|
+| **Admin / HOD** | Full access — user management, all batches, all courses, all marks |
+| **Coordinator** | Manages assigned courses — creates teams, assigns faculty, enters marks |
+| **Teacher** | Views projects where assigned as guide or examiner |
+| **Student** | Read-only view of own team, assigned faculty, and review marks |
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React.js |
-| Backend | FastAPI (Python) |
+| Frontend | React 18 + Vite |
+| Backend | FastAPI (Python 3.11+) |
 | Database | Supabase (PostgreSQL) |
-| AI Chatbot | Google Gemini |
-| Deployment | Vercel |
+| AI Chatbot | Groq API — Llama 3.1 8B |
+| GitHub Integration | GitHub REST API |
+| Production Server | Gunicorn + Uvicorn workers |
+| Reverse Proxy | nginx |
 
 ---
 
-## 🚀 Getting Started
+## Project Structure
 
-### Prerequisites
-- Node.js v18+
-- Python v3.9+
-- Supabase project configured
-- Google Gemini API key
-
-### Installation
-
-Clone the repository:
-```bash
-git clone https://github.com/Pratham-K-890/MiniProjectTracker.git
-cd MiniProjectTracker
+```
+MiniProjectTracker/
+├── backend/
+│   ├── main.py                # FastAPI entry point, CORS, exception handler
+│   ├── project_tracker.py     # Core CRUD — batches, courses, projects, marks
+│   ├── auth_router.py         # Login, account creation, bulk student upload
+│   ├── chatbot.py             # NL filter, explain, suggest endpoints
+│   ├── jwt_auth.py            # JWT verification, role guards
+│   ├── github_utils.py        # GitHub API — README fetch, repo search
+│   ├── requirements.txt
+│   └── sql/                   # DB migration scripts (run in Supabase SQL Editor)
+├── web/
+│   ├── src/
+│   │   ├── pages/             # LoginPage, BatchesPage, ProjectsPage, etc.
+│   │   ├── components/        # Layout, Modal, Spinner
+│   │   ├── context/           # AuthContext
+│   │   ├── api.js             # All API call functions
+│   │   └── auth.js            # Token helpers
+│   └── package.json
+├── deploy/
+│   ├── nginx.conf             # nginx site config for bare metal
+│   ├── project-tracker.service # systemd unit file
+│   └── deploy.sh              # One-command install/update script
+├── render.yaml                # Render cloud deployment config
+└── README.md
 ```
 
-Set up the backend:
+---
+
+## Getting Started (Local Dev)
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- A Supabase project with migrations applied (`backend/sql/` in order)
+- Groq API key (free at console.groq.com)
+
+### Backend
+
 ```bash
 cd backend
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in `backend/`:
-```
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_anon_key
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-Run the backend:
+Copy and fill in environment variables:
 ```bash
-uvicorn main:app --reload
+cp .env.example .env
 ```
 
-Set up the frontend:
+```env
+SUPABASE_URL=https://<your-project-ref>.supabase.co/rest/v1/
+SUPABASE_SERVICE_KEY=<service-role-key>
+SUPABASE_JWT_SECRET=<jwt-secret>
+GROQ_API_KEY=<groq-api-key>
+GROQ_MODEL=llama-3.1-8b-instant
+GITHUB_TOKEN=               # optional — raises rate limit to 5000/hr
+ALLOWED_ORIGINS=*           # lock down to your domain in production
+```
+
+Run:
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+### Frontend
+
 ```bash
 cd web
 npm install
 ```
 
-Create a `.env` file in `web/`:
-```
+Create `web/.env`:
+```env
 VITE_API_URL=http://localhost:8000
 ```
 
-Run the frontend:
+Run:
 ```bash
 npm run dev
 ```
 
 ---
 
-## 📁 Project Structure
+## Deployment
 
+### Cloud (Render)
+Push to `main`. Render picks up `render.yaml` automatically and runs:
 ```
-MiniProjectTracker/
-├── backend/               # FastAPI backend
-│   ├── main.py
-│   ├── routes/
-│   ├── models/
-│   └── requirements.txt
-├── web/                   # React frontend
-│   ├── src/
-│   └── package.json
-├── render.yaml
-└── .gitignore
+gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
+```
+Host the frontend separately (Vercel, Netlify, or Render static site).
+
+### Bare Metal (Department Server)
+For a local server on the college LAN:
+
+```bash
+# First-time setup
+sudo apt install git nginx python3 python3-venv nodejs npm
+sudo git clone https://github.com/Pratham-K-890/MiniProjectTracker.git /opt/project-tracker
+sudo cp /opt/project-tracker/backend/.env.example /opt/project-tracker/backend/.env
+# edit .env with your values
+
+sudo cp /opt/project-tracker/deploy/project-tracker.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable project-tracker
+
+sudo cp /opt/project-tracker/deploy/nginx.conf /etc/nginx/sites-available/project-tracker
+sudo ln -s /etc/nginx/sites-available/project-tracker /etc/nginx/sites-enabled/
+
+# Deploy / update
+sudo bash /opt/project-tracker/deploy/deploy.sh
 ```
 
----
-
-## 🔐 Authentication
-
-All users are pre-registered by the Admin — there is no public sign-up. Users log in with their assigned credentials, and the system automatically grants access based on their role.
+After deployment, the app is available at `http://<server-ip>` on the local network.
 
 ---
 
-## 🤝 Contributing
+## Database Migrations
 
-Contributions from team members are welcome. Create a new branch, make your changes, and open a Pull Request with a clear description of what you have changed and why.
+Run scripts in the `backend/sql/` folder in order via the Supabase SQL Editor:
+
+| File | Purpose |
+|------|---------|
+| `05_ensure_schema.sql` | Core tables, RLS off |
+| `06_project_status.sql` | Mini/major status on semester |
+| `07_project_active.sql` | Active flag on semester |
+| `08_teams_and_examiners.sql` | Team numbers, examiner junction table |
+| `09_evaluation.sql` | Evaluation reviews and marks tables |
 
 ---
 
-## 👨‍💻 Team
+## Authentication
 
-Built by students of the **AIML Department** to make project administration more efficient, transparent, and accessible for everyone — from the HOD to the student.
+All accounts are created by an admin — there is no public sign-up. Users log in with their assigned email and password. The backend validates every request against a Supabase-issued JWT (ES256).
