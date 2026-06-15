@@ -69,13 +69,21 @@ def _supa_delete_user(user_id: str) -> None:
 
 
 def _supa_login(email: str, password: str) -> dict:
-    res = requests.post(
-        f"{_SUPA_BASE}/auth/v1/token?grant_type=password",
-        json={"email": email, "password": password},
-        headers={"apikey": _SERVICE_KEY, "Content-Type": "application/json"},
-        timeout=10,
-    )
-    data = res.json()
+    try:
+        res = requests.post(
+            f"{_SUPA_BASE}/auth/v1/token?grant_type=password",
+            json={"email": email, "password": password},
+            headers={"apikey": _SERVICE_KEY, "Content-Type": "application/json"},
+            timeout=10,
+        )
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(503, "Cannot reach authentication server. The database project may be paused — check the Supabase dashboard.")
+    except requests.exceptions.Timeout:
+        raise HTTPException(504, "Authentication server timed out.")
+    try:
+        data = res.json()
+    except Exception:
+        raise HTTPException(502, f"Unexpected response from auth server (HTTP {res.status_code}).")
     if not res.ok:
         raise HTTPException(
             401,
