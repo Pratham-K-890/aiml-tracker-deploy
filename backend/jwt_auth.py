@@ -65,6 +65,14 @@ def _build_key_map() -> dict:
 _KEY_MAP: dict = _build_key_map()
 
 
+def _get_key_map() -> dict:
+    """Return cached key map, re-fetching if it is empty (startup may have failed)."""
+    global _KEY_MAP
+    if not _KEY_MAP:
+        _KEY_MAP = _build_key_map()
+    return _KEY_MAP
+
+
 def verify_token(authorization: str = Header(...)) -> dict:
     """Decode + verify a Supabase JWT. Raises 401 on missing/expired/invalid."""
     if not authorization.startswith("Bearer "):
@@ -81,11 +89,12 @@ def verify_token(authorization: str = Header(...)) -> dict:
 
     alg = header.get("alg", "")
     kid = header.get("kid", "")
+    key_map = _get_key_map()
 
     try:
         _opts = {"verify_aud": False, "verify_iat": False}
-        if alg in ("ES256", "RS256") and kid in _KEY_MAP:
-            _, pub_key = _KEY_MAP[kid]
+        if alg in ("ES256", "RS256") and kid in key_map:
+            _, pub_key = key_map[kid]
             payload = jwt.decode(
                 token,
                 pub_key,
@@ -100,7 +109,7 @@ def verify_token(authorization: str = Header(...)) -> dict:
                 options=_opts,
             )
         else:
-            raise HTTPException(401, "Invalid token.")
+            raise HTTPException(401, "Invalid token — could not verify signature. Check SUPABASE_JWT_SECRET env var.")
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token has expired.")
