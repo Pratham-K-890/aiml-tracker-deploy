@@ -104,9 +104,15 @@ For "filter" intent:
   "sem_number":   integer — 1-8, MUST be a bare integer not a string (e.g. 5, not "5"),
   "course_name":  string  — substring of the course name,
   "title":        string  — substring of the project title,
-  "guide_name":   string  — the teacher's actual name ONLY; strip every honorific/title
-                            (mam, ma'am, sir, dr, prof, mr, mrs, ms, miss) before returning,
-  "student_name": string  — the student's actual name ONLY; strip honorifics the same way,
+  "guide_name":   string  — use ONLY when the query EXPLICITLY says "guided by", "under [teacher]",
+                            "supervisor", or uses a teacher honorific (mam, sir, prof, dr) with a name.
+                            Strip the honorific before returning. Example: "projects under Vindhya mam" → "Vindhya".
+  "student_name": string  — use when a name refers to the student who MADE/DID the project.
+                            "by [name]", "[name]'s project", "projects of [name]", "done by [name]"
+                            all mean student_name — NOT guide_name.
+                            Example: "projects by Roshan" → student_name "Roshan".
+                            Example: "show Bhargavi's projects" → student_name "Bhargavi".
+                            Strip honorifics the same way.
   "keyword":      string  — a technology or domain word that should appear in the project title
                             or GitHub URL (e.g. "Python", "React", "machine learning")
 }
