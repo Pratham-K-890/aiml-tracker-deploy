@@ -104,21 +104,24 @@ For "filter" intent:
   "sem_number":   integer — 1-8, MUST be a bare integer not a string (e.g. 5, not "5"),
   "course_name":  string  — substring of the course name,
   "title":        string  — substring of the project title,
-  "guide_name":   string  — use when the name clearly refers to a teacher/guide. Two triggers:
-                            (a) explicit teacher words: "guided by", "under", "supervisor"
-                            (b) a teacher honorific/title is present WITH the name: mam, ma'am,
-                                sir, dr, prof, mr, mrs, ms, miss.
-                            Honorific presence overrides "by": "by Anupama mam" → guide_name "Anupama".
-                            Examples:
-                              "projects by Reshma mam"      → guide_name "Reshma"
-                              "projects by Dr. Smith"        → guide_name "Smith"
-                              "guided by Kavya"              → guide_name "Kavya"
-                              "projects under prof Deepshree"→ guide_name "Deepshree"
-                            Always strip the honorific/title before returning the bare name.
-  "student_name": string  — use when a plain name (NO honorific, NO title) is the maker/author.
-                            "by Roshan", "show Roshan projects", "projects of Bhargavi" → student_name.
-                            "by Gurudarshan" → student_name "Gurudarshan"  (no honorific = student).
-                            Only switch to guide_name if a honorific/title is explicitly present.
+  "guide_name":   string  — use ONLY when an explicit guide indicator is present:
+                            (a) explicit teacher words in the sentence: "guided by", "under", "supervisor"
+                            (b) a teacher honorific appears as a SEPARATE WORD next to the name:
+                                mam, ma'am, madam, sir, dr, prof, mr, mrs, ms, miss.
+                                CRITICAL: the honorific must be its own space-separated token.
+                                "Sirisha" does NOT contain "sir" — it is one word, not two.
+                                "Simran", "Mridula", "Misshra" similarly have NO honorific.
+                            Examples (guide_name):
+                              "by Reshma mam"       → "Reshma"   (mam is a separate word)
+                              "of Mamatha mam"       → "Mamatha"  (mam after name still a guide signal)
+                              "by Dr. Smith"         → "Smith"
+                              "guided by Kavya"      → "Kavya"
+                              "under prof Deepshree" → "Deepshree"
+                            Always strip the honorific before returning only the bare name.
+  "student_name": string  — DEFAULT when no explicit guide indicator exists.
+                            "by Roshan", "of Bhargavi", "Gurudarshan projects",
+                            "by Sirisha", "by Simran", "by Mridula" → all student_name.
+                            When in doubt (no honorific word, no explicit guide phrase) → student_name.
   "keyword":      string  — a technology or domain word that should appear in the project title
                             or GitHub URL (e.g. "Python", "React", "machine learning")
 }
@@ -299,47 +302,44 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
     def _tokens(s: str) -> list[str]:
         return [t.lower() for t in s.split() if len(t) > 1]
 
-    def keep(p: dict) -> bool:
+    def _apply(p: dict, s: dict) -> bool:
         course = p.get("course") or {}
         sem    = course.get("semester") or {}
         batch  = sem.get("batch") or {}
 
-        if spec.get("guide_name"):
-            toks = [t.lower() for t in spec["guide_name"].split() if len(t) > 1]
+        if s.get("guide_name"):
+            toks = [t.lower() for t in s["guide_name"].split() if len(t) > 1]
             guide_profile = p.get("profiles") or {}
             guide_str = (guide_profile.get("name") or p.get("guide") or "").lower()
             if toks and not any(tok in guide_str for tok in toks):
                 return False
 
-        if spec.get("course_name"):
-            if spec["course_name"].lower() not in (course.get("course_name") or "").lower():
+        if s.get("course_name"):
+            if s["course_name"].lower() not in (course.get("course_name") or "").lower():
                 return False
 
-        if spec.get("batch_name"):
-            if spec["batch_name"].lower() not in (batch.get("batch_name") or "").lower():
+        if s.get("batch_name"):
+            if s["batch_name"].lower() not in (batch.get("batch_name") or "").lower():
                 return False
 
-        if isinstance(spec.get("sem_number"), int):
-            if sem.get("sem_number") != spec["sem_number"]:
+        if isinstance(s.get("sem_number"), int):
+            if sem.get("sem_number") != s["sem_number"]:
                 return False
 
-        if spec.get("student_name"):
-            toks     = _tokens(spec["student_name"])
+        if s.get("student_name"):
+            toks     = _tokens(s["student_name"])
             students = p.get("student") or []
-            # A project matches if at least one of its students has a name
-            # containing at least one name token (handles partial names).
             if toks and not any(
-                any(tok in (s.get("name") or "").lower() for tok in toks)
-                for s in students
+                any(tok in (st.get("name") or "").lower() for tok in toks)
+                for st in students
             ):
                 return False
 
-        if spec.get("keyword"):
-            toks         = _tokens(spec["keyword"])
+        if s.get("keyword"):
+            toks         = _tokens(s["keyword"])
             title_lower  = (p.get("title") or "").lower()
             github_lower = (p.get("github") or "").lower()
             readme_lower = (p.get("readme_cache") or "").lower()
-            # Every keyword token must appear in title, github URL, or cached README.
             if toks and not all(
                 tok in title_lower or tok in github_lower or tok in readme_lower
                 for tok in toks
@@ -348,8 +348,25 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
 
         return True
 
-    filtered = [p for p in rows if keep(p)]
-    summary   = _build_summary(len(filtered), spec)
+    filtered = [p for p in rows if _apply(p, spec)]
+
+    # If a name-only filter returns nothing, silently swap guide↔student and retry.
+    # Handles LLM mis-routing the name field (e.g. "by Sirisha" → guide when she's a student).
+    if not filtered:
+        if spec.get("guide_name") and not spec.get("student_name"):
+            fs = {**spec, "student_name": spec["guide_name"]}
+            del fs["guide_name"]
+            fb = [p for p in rows if _apply(p, fs)]
+            if fb:
+                filtered, spec = fb, fs
+        elif spec.get("student_name") and not spec.get("guide_name"):
+            fs = {**spec, "guide_name": spec["student_name"]}
+            del fs["student_name"]
+            fb = [p for p in rows if _apply(p, fs)]
+            if fb:
+                filtered, spec = fb, fs
+
+    summary    = _build_summary(len(filtered), spec)
     rephrasing = _suggest_rephrasing(req.query, spec) if not filtered else None
 
     return {
