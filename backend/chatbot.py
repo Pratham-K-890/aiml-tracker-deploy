@@ -104,15 +104,21 @@ For "filter" intent:
   "sem_number":   integer — 1-8, MUST be a bare integer not a string (e.g. 5, not "5"),
   "course_name":  string  — substring of the course name,
   "title":        string  — substring of the project title,
-  "guide_name":   string  — use ONLY when the query EXPLICITLY says "guided by", "under [teacher]",
-                            "supervisor", or uses a teacher honorific (mam, sir, prof, dr) with a name.
-                            Strip the honorific before returning. Example: "projects under Vindhya mam" → "Vindhya".
-  "student_name": string  — use when a name refers to the student who MADE/DID the project.
-                            "by [name]", "[name]'s project", "projects of [name]", "done by [name]"
-                            all mean student_name — NOT guide_name.
-                            Example: "projects by Roshan" → student_name "Roshan".
-                            Example: "show Bhargavi's projects" → student_name "Bhargavi".
-                            Strip honorifics the same way.
+  "guide_name":   string  — use when the name clearly refers to a teacher/guide. Two triggers:
+                            (a) explicit teacher words: "guided by", "under", "supervisor"
+                            (b) a teacher honorific/title is present WITH the name: mam, ma'am,
+                                sir, dr, prof, mr, mrs, ms, miss.
+                            Honorific presence overrides "by": "by Anupama mam" → guide_name "Anupama".
+                            Examples:
+                              "projects by Reshma mam"      → guide_name "Reshma"
+                              "projects by Dr. Smith"        → guide_name "Smith"
+                              "guided by Kavya"              → guide_name "Kavya"
+                              "projects under prof Deepshree"→ guide_name "Deepshree"
+                            Always strip the honorific/title before returning the bare name.
+  "student_name": string  — use when a plain name (NO honorific, NO title) is the maker/author.
+                            "by Roshan", "show Roshan projects", "projects of Bhargavi" → student_name.
+                            "by Gurudarshan" → student_name "Gurudarshan"  (no honorific = student).
+                            Only switch to guide_name if a honorific/title is explicitly present.
   "keyword":      string  — a technology or domain word that should appear in the project title
                             or GitHub URL (e.g. "Python", "React", "machine learning")
 }
