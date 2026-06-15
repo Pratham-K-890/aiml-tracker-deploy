@@ -14,5 +14,7 @@ services:
         sync: false
       - key: GITHUB_TOKEN
         sync: false
-      - key: JWT_SECRET
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: GROQ_MODEL
         sync: false
