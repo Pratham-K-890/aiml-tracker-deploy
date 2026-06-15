@@ -268,6 +268,7 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
 
     q = db.table("project").select(
         "project_id,title,github,guide,readme_cache,"
+        "profiles!guide_id(name),"
         "student(name,usn),"
         "course(course_name,semester(sem_number,batch(batch_name)))"
     )
@@ -278,23 +279,9 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
     if spec.get("title"):
         q = q.ilike("title", f"%{spec['title']}%")
 
-    # Guide: tokenise the cleaned name and OR across tokens so partial names
-    # and multi-part names both resolve correctly.
-    # e.g. "vindhya" → guide ILIKE '%vindhya%'
-    # e.g. "vindhya malagi" → guide ILIKE '%vindhya%' OR guide ILIKE '%malagi%'
-    # Single-char tokens (initials) are skipped to avoid broad false matches.
-    if spec.get("guide_name"):
-        tokens = [t for t in spec["guide_name"].split() if len(t) > 1]
-        if tokens:
-            q = q.or_(",".join(f"guide.ilike.%{t}%" for t in tokens))
-
-    # Keyword, batch_name, course_name, sem_number, and student_name are all
-    # handled in the Python post-filter below.  Keyword in particular MUST NOT
-    # be put into a SQL OR string because:
-    #   a) user input with commas would break the OR syntax (injection)
-    #   b) the readme_cache column may not exist in the DB, crashing the query
-    #   c) a second .or_() call alongside guide_name has undefined AND/OR
-    #      semantics across PostgREST versions
+    # Guide name, batch_name, course_name, sem_number, student_name, and keyword
+    # are all handled in the Python post-filter below. Guide in particular must
+    # be matched against profiles!guide_id(name) not the legacy guide text column.
 
     # Fetch enough rows that the Python post-filter sees the full relevant set.
     # 1000 is safe for department scale and avoids the silent truncation bug
@@ -310,6 +297,13 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
         course = p.get("course") or {}
         sem    = course.get("semester") or {}
         batch  = sem.get("batch") or {}
+
+        if spec.get("guide_name"):
+            toks = [t.lower() for t in spec["guide_name"].split() if len(t) > 1]
+            guide_profile = p.get("profiles") or {}
+            guide_str = (guide_profile.get("name") or p.get("guide") or "").lower()
+            if toks and not any(tok in guide_str for tok in toks):
+                return False
 
         if spec.get("course_name"):
             if spec["course_name"].lower() not in (course.get("course_name") or "").lower():
