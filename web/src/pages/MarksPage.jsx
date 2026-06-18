@@ -93,8 +93,9 @@ export default function MarksPage() {
         };
       }
       setMarksForm(form);
-    } catch {
+    } catch (e) {
       setMarksForm({});
+      setMarksMsg({ type: 'err', text: 'Could not load saved marks: ' + (e.message || 'unknown error') });
     } finally {
       setMarksLoading(false);
     }
@@ -103,10 +104,13 @@ export default function MarksPage() {
   function toggleReview(rev) {
     if (activeReviewId === rev.id) { setActiveReviewId(null); return; }
     setActiveReviewId(rev.id);
-    setActiveTeamIdx(0);
     setMarksForm({});
     setMarksMsg(null);
-    if (allTeams.length > 0) loadMarks(rev.id, allTeams[0].project_id);
+    if (allTeams.length > 0) {
+      const idx = Math.min(activeTeamIdx, allTeams.length - 1);
+      setActiveTeamIdx(idx);
+      loadMarks(rev.id, allTeams[idx].project_id);
+    }
   }
 
   function selectTeam(idx, team) {
@@ -134,7 +138,16 @@ export default function MarksPage() {
         };
       });
       await submitEvalMarks(rev.id, team.project_id, payload);
-      setMarksMsg({ type: 'ok', text: 'Marks saved.' });
+      const rows = await getMyEvalMarks(rev.id, team.project_id);
+      const form = {};
+      for (const row of (rows || [])) {
+        form[row.student_id] = {
+          c1: row.c1 ?? '', c2: row.c2 ?? '', c3: row.c3 ?? '',
+          c4: row.c4 ?? '', c5: row.c5 ?? '',
+        };
+      }
+      setMarksForm(form);
+      setMarksMsg({ type: 'ok', text: `Marks saved. (${rows?.length || 0} students)` });
     } catch (e) {
       setMarksMsg({ type: 'err', text: e.message });
     } finally {
