@@ -1,0 +1,13 @@
+services:
+  app:
+    image: prathamk890/aiml-project-tracker:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - tracker_data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  tracker_data:

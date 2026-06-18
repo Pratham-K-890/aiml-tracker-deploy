@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Project Tracker",
+    "slug": "project-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "projecttracker",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0D1B2A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.projecttracker.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0D1B2A"
+      },
+      "package": "com.projecttracker.app"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-document-picker"
+    ]
+  }
+}
