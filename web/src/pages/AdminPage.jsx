@@ -3,6 +3,7 @@ import {
   getAdminUsers, getAdminCourses, getAdminCoordinators,
   assignCoordinator, removeCoordinator, deleteUser,
   createTeacher, createStudent, previewStudents, uploadStudents,
+  adminResetPassword,
 } from '../api';
 import Spinner from '../components/Spinner';
 import Modal from '../components/Modal';
@@ -444,8 +445,13 @@ function CoordinatorsTab({ teachers, courses, coordinators, onRefresh }) {
 // ── Users tab ─────────────────────────────────────────────────────────────────
 
 function UsersTab({ teachers, students, onRefresh }) {
-  const [deletingId, setDeletingId] = useState('');
-  const [err, setErr]               = useState('');
+  const [deletingId, setDeletingId]   = useState('');
+  const [err, setErr]                 = useState('');
+  const [resetTarget, setResetTarget] = useState(null); // { id, name }
+  const [newPassword, setNewPassword] = useState('');
+  const [resetting, setResetting]     = useState(false);
+  const [resetOk, setResetOk]         = useState('');
+  const [resetErr, setResetErr]       = useState('');
 
   async function handleDelete(userId, label) {
     if (!window.confirm(`Delete account for ${label}? This cannot be undone.`)) return;
@@ -453,6 +459,24 @@ function UsersTab({ teachers, students, onRefresh }) {
     try { await deleteUser(userId); onRefresh(); }
     catch (e) { setErr(e.message); }
     finally { setDeletingId(''); }
+  }
+
+  function openReset(u) {
+    setResetTarget(u);
+    setNewPassword('');
+    setResetErr('');
+    setResetOk('');
+  }
+
+  async function handleReset(e) {
+    e.preventDefault();
+    setResetting(true); setResetErr(''); setResetOk('');
+    try {
+      await adminResetPassword(resetTarget.id, newPassword);
+      setResetOk(`Password reset for ${resetTarget.name || resetTarget.email}.`);
+      setNewPassword('');
+    } catch (e) { setResetErr(e.message); }
+    finally { setResetting(false); }
   }
 
   function UserTable({ title, rows }) {
@@ -476,7 +500,13 @@ function UsersTab({ teachers, students, onRefresh }) {
                     <td className="mono">{u.email}</td>
                     <td><span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--accent)' }}>{u.role}</span></td>
                     <td className="mono">{u.usn || '—'}</td>
-                    <td>
+                    <td style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => openReset(u)}
+                        style={{ background: 'none', border: '1px solid var(--accent-soft)', borderRadius: 4, color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', padding: '3px 8px', cursor: 'pointer' }}
+                      >
+                        Reset PW
+                      </button>
                       <button
                         onClick={() => handleDelete(u.id, u.name || u.email)}
                         disabled={deletingId === u.id}
@@ -500,6 +530,34 @@ function UsersTab({ teachers, students, onRefresh }) {
       {err && <div className="alert error">{err}</div>}
       <UserTable title="Teachers" rows={teachers} />
       <UserTable title="Students" rows={students} />
+
+      {resetTarget && (
+        <Modal open={true} title={`Reset Password — ${resetTarget.name || resetTarget.email}`} onClose={() => setResetTarget(null)}>
+          {resetErr && <div className="alert error">{resetErr}</div>}
+          {resetOk  && <div className="alert success">✓ {resetOk}</div>}
+          <form onSubmit={handleReset}>
+            <label className="field-label">New Password</label>
+            <input
+              className="text-input"
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="min 6 characters"
+              minLength={6}
+              required
+              autoFocus
+            />
+            <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+              <button className="pill-btn" type="submit" disabled={resetting}>
+                {resetting ? 'Saving…' : 'Reset Password'}
+              </button>
+              <button className="pill-btn outline" type="button" onClick={() => setResetTarget(null)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }

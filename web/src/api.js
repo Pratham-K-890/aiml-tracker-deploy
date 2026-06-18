@@ -276,6 +276,13 @@ export const deleteUser = (userId) =>
     headers: authHeaders(),
   });
 
+export const adminResetPassword = (userId, newPassword) =>
+  request(`${SERVER}/api/auth/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+
 // ── Reviews ───────────────────────────────────────────────────────────────────
 export const getReviews = (courseId) =>
   request(`${TRACKER}/courses/${courseId}/reviews`, { headers: authHeaders() });

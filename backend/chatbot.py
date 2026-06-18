@@ -196,21 +196,23 @@ def _build_summary(count: int, spec: dict) -> str:
 
 
 def _handle_aggregate(question: str) -> dict:
-    from project_tracker import db
-    # Fetch up to 1000 so aggregate answers cover the full DB at department scale
-    rows = db.table("project").select(
-        "title,guide,course(course_name,semester(sem_number,batch(batch_name)))"
-    ).limit(1000).execute().data or []
+    from database import fetchall
+    rows = fetchall("""
+        SELECT p.title, p.guide,
+               c.course_name, s.sem_number, b.batch_name
+        FROM project p
+        LEFT JOIN course c ON c.course_id = p.course_id
+        LEFT JOIN semester s ON s.semester_id = c.semester_id
+        LEFT JOIN batch b ON b.batch_id = s.batch_id
+        LIMIT 1000
+    """)
 
     lines = []
     for p in rows:
-        course = p.get("course") or {}
-        sem    = course.get("semester") or {}
-        batch  = sem.get("batch") or {}
         lines.append(
             f"- {p.get('title') or '?'} | Guide: {p.get('guide') or '?'} | "
-            f"Course: {course.get('course_name') or '?'} | "
-            f"Sem: {sem.get('sem_number') or '?'} | Batch: {batch.get('batch_name') or '?'}"
+            f"Course: {p.get('course_name') or '?'} | "
+            f"Sem: {p.get('sem_number') or '?'} | Batch: {p.get('batch_name') or '?'}"
         )
 
     answer = _groq_chat(
@@ -273,29 +275,12 @@ def chatbot_filter(req: FilterRequest, user: dict = Depends(verify_token)):
     # any querying so all downstream logic sees clean, predictable values.
     _normalise_spec(spec)
 
-    from project_tracker import db
+    from project_tracker import get_projects_for_chatbot
 
-    q = db.table("project").select(
-        "project_id,title,github,guide,readme_cache,"
-        "profiles!guide_id(name),"
-        "student(name,usn),"
-        "course(course_name,semester(sem_number,batch(batch_name)))"
-    )
-
-    # ── SQL-level filters (fields that live directly on the project row) ───────
-
-    # Title: single ilike is safe — user-facing title substring
+    rows = get_projects_for_chatbot()
     if spec.get("title"):
-        q = q.ilike("title", f"%{spec['title']}%")
-
-    # Guide name, batch_name, course_name, sem_number, student_name, and keyword
-    # are all handled in the Python post-filter below. Guide in particular must
-    # be matched against profiles!guide_id(name) not the legacy guide text column.
-
-    # Fetch enough rows that the Python post-filter sees the full relevant set.
-    # 1000 is safe for department scale and avoids the silent truncation bug
-    # where limit(50) cuts results before batch/semester post-filtering.
-    rows = q.limit(1000).execute().data or []
+        title_filter = spec["title"].lower()
+        rows = [p for p in rows if title_filter in (p.get("title") or "").lower()]
 
     # ── Python post-filter (nested fields + keyword) ──────────────────────────
 
@@ -385,11 +370,10 @@ _CACHE_TTL = timedelta(days=7)
 
 
 def _load_project_with_readme(project_id: str) -> tuple[dict, Optional[str], Optional[str]]:
-    from project_tracker import db
-    proj = db.table("project").select("*").eq("project_id", project_id).execute()
-    if not proj.data:
+    from database import fetchone, execute
+    p = fetchone("SELECT * FROM project WHERE project_id = ?", (project_id,))
+    if not p:
         raise HTTPException(404, "Project not found.")
-    p = proj.data[0]
 
     cached_at_raw = p.get("readme_cached_at")
     if p.get("readme_cache") and cached_at_raw:
@@ -407,11 +391,10 @@ def _load_project_with_readme(project_id: str) -> tuple[dict, Optional[str], Opt
     if not readme:
         return p, None, "readme_unreachable"
 
-    db.table("project").update({
-        "readme_cache":     readme,
-        "readme_cached_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("project_id", project_id).execute()
-
+    execute(
+        "UPDATE project SET readme_cache = ?, readme_cached_at = ? WHERE project_id = ?",
+        (readme, datetime.now(timezone.utc).isoformat(), project_id),
+    )
     return p, readme, None
 
 

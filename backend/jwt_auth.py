@@ -1,115 +1,29 @@
 """
-JWT authentication + role-based access checks.
+JWT authentication for Docker/SQLite deployment.
+Uses HS256 with JWT_SECRET env var instead of Supabase JWKS.
 
 Role hierarchy: hod > admin > teacher (coordinator / guide) > student
-
-  verify_token               — decode Supabase JWT, return payload
-  require_admin              — hod or admin
-  require_coordinator_for_course   — hod, admin, or coordinator of that course
-  require_coordinator_for_project  — resolves course, then same check
-  require_guide_for_project  — hod, admin, course coordinator, or project's guide
-
-Supabase newer projects issue ES256 tokens (asymmetric).  We fetch the
-public keys from the JWKS endpoint at startup and fall back to HS256
-with the shared secret for legacy deployments.
 """
+from __future__ import annotations
 
-import json
 import os
 
 import jwt
-import requests as _req
 from fastapi import Header, HTTPException, status
 
-_SUPA_URL_RAW = os.getenv("SUPABASE_URL", "").rstrip("/")
-_SUPA_BASE = (
-    _SUPA_URL_RAW[: -len("/rest/v1")]
-    if _SUPA_URL_RAW.endswith("/rest/v1")
-    else _SUPA_URL_RAW
-)
-
-_HS_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
+_SECRET: str = os.getenv("JWT_SECRET", "")
 _ELEVATED = frozenset({"hod", "admin"})
 
 
-def _build_key_map() -> dict:
-    """Fetch JWKS from Supabase and return {kid: (alg, public_key)}."""
-    if not _SUPA_BASE:
-        return {}
-    try:
-        res = _req.get(
-            f"{_SUPA_BASE}/auth/v1/.well-known/jwks.json", timeout=10
-        )
-        res.raise_for_status()
-        keys = res.json().get("keys", [])
-    except Exception:
-        return {}
-
-    key_map: dict = {}
-    for k in keys:
-        try:
-            alg = k.get("alg", "")
-            kid = k.get("kid", "")
-            if alg == "ES256":
-                pub = jwt.algorithms.ECAlgorithm.from_jwk(json.dumps(k))
-            elif alg == "RS256":
-                pub = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(k))
-            else:
-                continue
-            key_map[kid] = (alg, pub)
-        except Exception:
-            continue
-    return key_map
-
-
-_KEY_MAP: dict = _build_key_map()
-
-
-def _get_key_map() -> dict:
-    """Return cached key map, re-fetching if it is empty (startup may have failed)."""
-    global _KEY_MAP
-    if not _KEY_MAP:
-        _KEY_MAP = _build_key_map()
-    return _KEY_MAP
-
-
 def verify_token(authorization: str = Header(...)) -> dict:
-    """Decode + verify a Supabase JWT. Raises 401 on missing/expired/invalid."""
+    """Decode + verify a HS256 JWT. Raises 401 on missing/expired/invalid."""
     if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "Authorization header must use the Bearer scheme.",
-        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authorization header must use the Bearer scheme.")
     token = authorization[len("Bearer "):]
-
+    if not _SECRET:
+        raise HTTPException(500, "JWT_SECRET not configured on the server.")
     try:
-        header = jwt.get_unverified_header(token)
-    except jwt.DecodeError:
-        raise HTTPException(401, "Invalid token.")
-
-    alg = header.get("alg", "")
-    kid = header.get("kid", "")
-    key_map = _get_key_map()
-
-    try:
-        _opts = {"verify_aud": False, "verify_iat": False}
-        if alg in ("ES256", "RS256") and kid in key_map:
-            _, pub_key = key_map[kid]
-            payload = jwt.decode(
-                token,
-                pub_key,
-                algorithms=[alg],
-                options=_opts,
-            )
-        elif alg == "HS256" and _HS_SECRET:
-            payload = jwt.decode(
-                token,
-                _HS_SECRET,
-                algorithms=["HS256"],
-                options=_opts,
-            )
-        else:
-            raise HTTPException(401, "Invalid token — could not verify signature. Check SUPABASE_JWT_SECRET env var.")
+        payload = jwt.decode(token, _SECRET, algorithms=["HS256"])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token has expired.")
@@ -118,14 +32,11 @@ def verify_token(authorization: str = Header(...)) -> dict:
 
 
 def _get_role(user_id: str) -> str:
-    from project_tracker import db
-    try:
-        hit = db.table("profiles").select("role").eq("id", user_id).execute()
-    except Exception as exc:
-        raise HTTPException(503, f"Database unavailable: {exc}")
-    if not hit.data:
+    from database import fetchone
+    row = fetchone("SELECT role FROM profiles WHERE id = ?", (user_id,))
+    if not row:
         raise HTTPException(403, "Profile not found. Contact an admin.")
-    return hit.data[0].get("role", "")
+    return row.get("role", "")
 
 
 def require_admin(user: dict) -> None:
@@ -139,62 +50,55 @@ def require_admin(user: dict) -> None:
 
 def require_coordinator_for_course(course_id: str, user: dict) -> None:
     """HOD, admin, or the coordinator assigned to course_id pass."""
-    from project_tracker import db
+    from database import fetchone
     uid = user.get("sub")
     if not uid:
         raise HTTPException(401, "Token has no subject claim.")
     if _get_role(uid) in _ELEVATED:
         return
-    hit = (
-        db.table("coordinator").select("course_id")
-        .eq("user_id", uid).eq("course_id", course_id).execute()
+    hit = fetchone(
+        "SELECT 1 FROM coordinator WHERE user_id = ? AND course_id = ?",
+        (uid, course_id),
     )
-    if not hit.data:
+    if not hit:
         raise HTTPException(403, "Only the course coordinator may perform this action.")
 
 
 def require_coordinator_for_project(project_id: str, user: dict) -> None:
     """Resolves course_id from project, then applies coordinator check."""
-    from project_tracker import db
+    from database import fetchone
     uid = user.get("sub")
     if not uid:
         raise HTTPException(401, "Token has no subject claim.")
     if _get_role(uid) in _ELEVATED:
         return
-    proj = db.table("project").select("course_id").eq("project_id", project_id).execute()
-    if not proj.data:
+    proj = fetchone("SELECT course_id FROM project WHERE project_id = ?", (project_id,))
+    if not proj:
         raise HTTPException(404, "Project not found.")
-    course_id = proj.data[0]["course_id"]
-    hit = (
-        db.table("coordinator").select("course_id")
-        .eq("user_id", uid).eq("course_id", course_id).execute()
+    hit = fetchone(
+        "SELECT 1 FROM coordinator WHERE user_id = ? AND course_id = ?",
+        (uid, proj["course_id"]),
     )
-    if not hit.data:
+    if not hit:
         raise HTTPException(403, "Only the course coordinator may perform this action.")
 
 
 def require_guide_for_project(project_id: str, user: dict) -> None:
     """HOD, admin, course coordinator, or the project's own guide pass."""
-    from project_tracker import db
+    from database import fetchone
     uid = user.get("sub")
     if not uid:
         raise HTTPException(401, "Token has no subject claim.")
     if _get_role(uid) in _ELEVATED:
         return
-    proj = (
-        db.table("project").select("course_id, guide_id")
-        .eq("project_id", project_id).execute()
-    )
-    if not proj.data:
+    proj = fetchone("SELECT course_id, guide_id FROM project WHERE project_id = ?", (project_id,))
+    if not proj:
         raise HTTPException(404, "Project not found.")
-    if proj.data[0].get("guide_id") == uid:
+    if proj.get("guide_id") == uid:
         return
-    course_id = proj.data[0]["course_id"]
-    hit = (
-        db.table("coordinator").select("course_id")
-        .eq("user_id", uid).eq("course_id", course_id).execute()
+    hit = fetchone(
+        "SELECT 1 FROM coordinator WHERE user_id = ? AND course_id = ?",
+        (uid, proj["course_id"]),
     )
-    if not hit.data:
-        raise HTTPException(
-            403, "Only the project guide or course coordinator may perform this action."
-        )
+    if not hit:
+        raise HTTPException(403, "Only the project guide or course coordinator may perform this action.")

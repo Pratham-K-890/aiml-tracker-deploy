@@ -19,11 +19,13 @@ load_dotenv()  # must happen before the router imports read env vars
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from project_tracker import router as tracker_router
 from chatbot import router as chatbot_router
 from auth_router import router as auth_router
+from database import init_db
 
 from fastapi.openapi.utils import get_openapi
 
@@ -85,3 +87,34 @@ app.include_router(chatbot_router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+def startup():
+    init_db()
+    upload_dir = os.getenv("UPLOAD_DIR", "/data/uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+
+# ── Static file serving (uploads + React SPA) ────────────────────────────────
+
+_upload_dir = os.getenv("UPLOAD_DIR", "/data/uploads")
+os.makedirs(_upload_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_upload_dir), name="uploads")
+
+_web_dist = os.getenv("WEB_DIST", "/app/web/dist")
+if os.path.isdir(_web_dist):
+    # Serve compiled JS/CSS/image assets directly
+    _assets_dir = os.path.join(_web_dist, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    # Catch-all: return index.html so React Router handles client-side navigation.
+    # This must be last so all /api/* and /health routes match first.
+    _index = os.path.join(_web_dist, "index.html")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        return FileResponse(_index)
