@@ -1,13 +1,20 @@
 services:
   app:
-    build: .
+    image: prathamk890/aiml-project-tracker:latest
     ports:
       - "8000:8000"
     volumes:
-      - tracker_data:/data
-    env_file:
-      - .env
+      - ./deploy/tracker.db:/data/tracker.db
+      - tracker_uploads:/data/uploads
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-for-production}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DB_PATH: /data/tracker.db
+      UPLOAD_DIR: /data/uploads
+      WEB_DIST: /app/web/dist
     restart: unless-stopped
 
 volumes:
-  tracker_data:
+  tracker_uploads:
